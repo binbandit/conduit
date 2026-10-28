@@ -1,3 +1,3 @@
 module github.com/crazywolf132/conduit
 
-go 1.23.4
+go 1.27.0

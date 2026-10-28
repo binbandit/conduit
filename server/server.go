@@ -168,7 +168,8 @@ func (s *Server) handleConnection(conn *Connection) {
 		s.config.Logger.Infof("Connection closed: %s", conn.id)
 	}()
 
-	decoder := json.NewDecoder(conduit.NewLimitedReader(conn.conn, s.config.MaxMessageSize))
+	limited := conduit.NewLimitedReader(conn.conn, s.config.MaxMessageSize)
+	decoder := json.NewDecoder(limited)
 
 	for {
 		select {
@@ -177,6 +178,14 @@ func (s *Server) handleConnection(conn *Connection) {
 		case <-conn.done:
 			return
 		default:
+			// Per-message limits:
+			//  1. Reset the MaxMessageSize budget.
+			//  2. Block in More, with no deadline, until a message starts (idle conns stay open).
+			//  3. Give the rest of the message ReadTimeout.
+			// If More fails, Decode returns the same error.
+			limited.Reset()
+			conn.conn.SetReadDeadline(time.Time{})
+			decoder.More()
 			if s.config.ReadTimeout > 0 {
 				conn.conn.SetReadDeadline(time.Now().Add(s.config.ReadTimeout))
 			}

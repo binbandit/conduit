@@ -48,13 +48,20 @@ func TestUnmarshalPayload(t *testing.T) {
 
 // TestMessageSizeLimit tests that messages exceeding the MaxMessageSize limit result in an error.
 func TestMessageSizeLimit(t *testing.T) {
-	// Make the data buffer large enough so we exceed the limit in one read.
 	data := make([]byte, 20)
 	reader := conduit.NewLimitedReader(&mockReader{size: 20}, 15) // limit 15 bytes
 
-	_, err := reader.Read(data)
-	if err == nil {
-		t.Errorf("Expected error due to exceeding limit, got nil")
+	if n, _ := reader.Read(data); n != 15 {
+		t.Errorf("Expected read to stop at the 15 byte limit, got %d bytes", n)
+	}
+	// Must be 0 bytes with the error. jsonv2 ignores errors that come with data.
+	if n, err := reader.Read(data); n != 0 || err == nil {
+		t.Errorf("Expected 0 bytes and an error past the limit, got %d bytes, err %v", n, err)
+	}
+
+	reader.Reset()
+	if _, err := reader.Read(data); err != nil {
+		t.Errorf("Expected Reset to restore the limit, got %v", err)
 	}
 }
 

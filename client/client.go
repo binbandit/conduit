@@ -70,7 +70,7 @@ func (c *Client) Connect() error {
 
 	c.config.Logger.Infof("Connected to server at %s", c.config.SocketPath)
 
-	go c.handleMessages()
+	go c.handleMessages(conn)
 	return nil
 }
 
@@ -146,7 +146,7 @@ func (c *Client) Send(msgType string, payload interface{}) error {
 	return nil
 }
 
-func (c *Client) handleMessages() {
+func (c *Client) handleMessages(conn net.Conn) {
 	defer func() {
 		if c.config.Reconnect && !c.IsClosed() {
 			c.config.Logger.Info("Connection lost, attempting to reconnect...")
@@ -159,15 +159,24 @@ func (c *Client) handleMessages() {
 		}
 	}()
 
-	decoder := json.NewDecoder(conduit.NewLimitedReader(c.conn, c.config.MaxMessageSize))
+	limited := conduit.NewLimitedReader(conn, c.config.MaxMessageSize)
+	decoder := json.NewDecoder(limited)
 
 	for {
 		select {
 		case <-c.done:
 			return
 		default:
+			// Per-message limits:
+			//  1. Reset the MaxMessageSize budget.
+			//  2. Block in More, with no deadline, until a message starts (idle conns stay open).
+			//  3. Give the rest of the message ReadTimeout.
+			// If More fails, Decode returns the same error.
+			limited.Reset()
+			conn.SetReadDeadline(time.Time{})
+			decoder.More()
 			if c.config.ReadTimeout > 0 {
-				c.conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
+				conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
 			}
 
 			var msg conduit.Message
